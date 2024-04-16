@@ -6,19 +6,26 @@
 //
 
 import SwiftUI
+import SwiftfulUI
+import SwiftfulRouting
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+  
+  @Environment(\.router) var router
+  
+  var body: some View {
+    List {
+      Button("Open Spotify") {
+        router.showScreen(.fullScreenCover) { _ in
+          SpotifyHomeView(viewModel: SpotifyHomeViewModel(router: router))
         }
-        .padding()
+      }
     }
+  }
 }
 
 #Preview {
+  RouterView { _ in
     ContentView()
+  }
 }

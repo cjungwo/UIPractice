@@ -7,70 +7,46 @@
 
 import SwiftUI
 import SwiftfulUI
+import SwiftfulRouting
 
-struct SpotifyHomeView: View {
+@Observable
+final class SpotifyHomeViewModel {
+  let router: AnyRouter
   
-  @State private var currentUser: User? = nil
-  @State private var selectedCategory: Category? = nil
-  @State private var products: [Product] = []
-
-  var body: some View {
-    ZStack {
-      Color.spotifyBlack
-        .ignoresSafeArea()
-      
-      ScrollView(.vertical) {
-        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-          Section {
-            VStack {
-              recentsSection
-              
-              if let product = products.first {
-                SpotifyNewReleaseCell(
-                  imageName: product.firstImage,
-                  headline: product.brand,
-                  subheadline: product.category,
-                  title: product.title,
-                  subtitle: product.description,
-                  onAddToPlaylistPressed: {
-                    
-                  },
-                  onPlayPressed: {
-                    
-                  }
-                )
-              }
-            }
-            .padding(.horizontal, 16)
-            
-            ForEach(0..<10) { _ in
-                Rectangle()
-                .frame(width: 200, height: 200)
-            }
-          } header: {
-            header
-          }
-        }
-        .padding(.top, 8)
-      }
-      .scrollIndicators(.hidden)
-      .clipped()
-    }
-    .task {
-      await getData()
-    }
+  var currentUser: User? = nil
+  var selectedCategory: Category? = nil
+  var products: [Product] = []
+  var productRows: [ProductRow] = []
+  
+  init(router: AnyRouter) {
+    self.router = router
+    self.currentUser = currentUser
+    self.selectedCategory = selectedCategory
+    self.products = products
+    self.productRows = productRows
   }
   
-  private func getData() async {
+  func getData() async {
+    guard products.isEmpty else { return }
+    
     do {
       currentUser = try await DatabaseHelper().getUsers().first
       products = try await Array(DatabaseHelper().getProducts().prefix(8))
-    } catch {
       
+      var rows: [ProductRow] = []
+      let allBrands = Set(products.map({ $0.brand }))
+      for brand in allBrands {
+        let products = self.products.filter({ $0.brand == brand })
+        rows.append(ProductRow(title: brand.capitalized, products: products))
+      }
+      productRows = rows
+      
+    } catch {
+      //
     }
   }
   
-  private var header: some View {
+  var header: some View {
     HStack(spacing: 0) {
       ZStack {
         if let currentUser {
@@ -78,7 +54,7 @@ struct SpotifyHomeView: View {
             .background(.spotifyWhite)
             .clipShape(Circle())
             .onTapGesture {
-              //
+              self.router.dismissScreen()
             }
         }
       }
@@ -89,10 +65,10 @@ struct SpotifyHomeView: View {
           ForEach(Category.allCases, id: \.self) { category in
               SpotifyCategoryCell(
                 title: category.rawValue.capitalized,
-                isSelected: category == selectedCategory
+                isSelected: category == self.selectedCategory
               )
               .onTapGesture {
-                selectedCategory = category
+                self.selectedCategory = category
               }
           }
         }
@@ -106,15 +82,117 @@ struct SpotifyHomeView: View {
     .background(Color.spotifyBlack)
   }
   
-  private var recentsSection: some View {
-    NonLazyVGrid(columns: 2, alignment: .center, spacing: 10, items: products) { product in
+  var recentsSection: some View {
+    NonLazyVGrid(
+      columns: 2,
+      alignment: .center,
+      spacing: 10,
+      items: products
+    ) { product in
       if let product {
         SpotifyRecentsCell(imageName: product.firstImage, title: product.title)
+          .asButton(.press) {
+            self.goToPlaylistView(product: product)
+          }
+      }
+    }
+  }
+  
+  func goToPlaylistView(product: Product) {
+    guard let currentUser else { return }
+    
+    router.showScreen(.push) { _ in
+      SpotifyPlaylistView(product: product, user: currentUser)
+    }
+  }
+  
+  func newReleaseSection(product: Product) -> some View {
+    SpotifyNewReleaseCell(
+      imageName: product.firstImage,
+      headline: product.brand,
+      subheadline: product.category,
+      title: product.title,
+      subtitle: product.description,
+      onAddToPlaylistPressed: {
+        
+      },
+      onPlayPressed: {
+        self.goToPlaylistView(product: product)
+      }
+    )
+  }
+  
+  var listRows: some View {
+    ForEach(productRows) { row in
+      VStack(alignment: .leading, spacing: 8) {
+        Text(row.title)
+          .font(.title)
+          .fontWeight(.semibold)
+          .foregroundStyle(.spotifyWhite)
+          .frame(width: .infinity, alignment: .leading)
+        
+        ScrollView(.horizontal) {
+          HStack(alignment: .top, spacing: 16) {
+            ForEach(row.products) { product in
+                ImageTitleRowCell(
+                  imageSize: 120,
+                  imageName: product.firstImage,
+                  title: product.title
+                )
+                .asButton(.press) {
+                  self.goToPlaylistView(product: product)
+                }
+            }
+          }
+          .padding(.horizontal, 16)
+        }
+        .scrollIndicators(.hidden)
       }
     }
   }
 }
 
+struct SpotifyHomeView: View {
+  
+  @State var viewModel: SpotifyHomeViewModel
+  
+  var body: some View {
+    ZStack {
+      Color.spotifyBlack
+        .ignoresSafeArea()
+      
+      ScrollView(.vertical) {
+        LazyVStack(spacing: 1, pinnedViews: [.sectionHeaders]) {
+          Section {
+            VStack(spacing: 16) {
+              viewModel.recentsSection
+              
+              if let product = viewModel.products.first {
+                viewModel.newReleaseSection(product: product)
+                  .padding(.horizontal, 16)
+              }
+              
+              viewModel.listRows
+            }
+            .padding(.horizontal, 16)
+            
+          } header: {
+            viewModel.header
+          }
+        }
+        .padding(.top, 8)
+      }
+      .scrollIndicators(.hidden)
+      .clipped()
+    }
+    .task {
+      await viewModel.getData()
+    }
+  }
+}
+
 #Preview {
-  SpotifyHomeView()
+  RouterView { router in
+    SpotifyHomeView(viewModel: SpotifyHomeViewModel(router: router))
+  }
 }
